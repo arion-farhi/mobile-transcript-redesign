@@ -1,8 +1,7 @@
 # Claude Code Session: swivl Mobile Transcript Redesign
 
-**Model:** claude-3-5-sonnet-20241022  
+**Model:** Claude 4.5 Sonnet 
 **Session Date:** January 28-29, 2026  
-**Working Directory:** ~/swivl-mobile-redesign
 
 ---
 
