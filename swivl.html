@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <!-- Viewport meta ensures proper scaling on mobile devices -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Studio</title>
+  <!-- Favicon using swivl branding -->
+  <link rel="icon" type="image/webp" href="images/swivl.png">
+  
+  <!-- ============================================
+       EXTERNAL DEPENDENCIES
+       Using CDN versions for zero build step requirement.
+       In production, these would be bundled via npm.
+       ============================================ -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- ============================================
+       TAILWIND CONFIGURATION
+       Extending default theme with swivl brand colors.
+       ============================================ -->
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            swivl: {
+              // Primary brand color - used for accents, labels, interactive elements
+              orange: '#F97316',
+              // Secondary brand color - used for AI message bubbles (better readability than orange bg)
+              cream: '#FEF3E2',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  
+  <!-- ============================================
+       CUSTOM STYLES
+       Styles that can't be achieved with Tailwind alone.
+       ============================================ -->
+  <style>
+    /* Base body styles - using system font stack for native feel */
+    body { 
+      margin: 0; 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    
+    /* Ensures long words break properly on mobile screens */
+    .break-words {
+      word-break: break-word;
+      overflow-wrap: break-word;
+    }
+    
+    /* ==========================================
+       AI SUMMARY ACCORDION
+       Using CSS Grid for smooth height animation.
+       This approach avoids the jumpiness of animating height directly.
+       ========================================== */
+    .summary-panel {
+      display: grid;
+      grid-template-rows: 0fr;
+      transition: grid-template-rows 0.25s ease-out;
+    }
+    .summary-panel.open {
+      grid-template-rows: 1fr;
+    }
+    .summary-panel > div {
+      overflow: hidden;
+    }
+    
+    /* ==========================================
+       NATIVE SELECT STYLING
+       Custom dropdown arrow while maintaining native behavior.
+       Native <select> is more accessible and mobile-friendly
+       than custom dropdown implementations.
+       ========================================== */
+    select {
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%236B7280'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 8px center;
+      background-size: 14px;
+      padding-right: 28px;
+    }
+    
+    /* Raw transcript should be selectable for copy/paste workflows */
+    .raw-transcript {
+      user-select: text;
+      cursor: text;
+    }
+    
+    /* ==========================================
+       ANIMATIONS
+       Subtle animations enhance perceived performance
+       and provide visual feedback for state changes.
+       ========================================== */
+    
+    /* Message entrance animation - staggered for visual interest */
+    @keyframes messageIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .message-animate {
+      opacity: 0;
+      animation: messageIn 0.3s ease-out forwards;
+    }
+    
+    /* Scroll-to-bottom button transitions */
+    .scroll-btn {
+      transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+    .scroll-btn:active {
+      transform: scale(0.95);
+    }
+    
+    /* Copy button feedback animation */
+    @keyframes copyPop {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.1); }
+      100% { transform: scale(1); }
+    }
+    .copy-pop {
+      animation: copyPop 0.2s ease-out;
+    }
+  </style>
+</head>
+<body>
+  <!-- React mount point -->
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState, useRef, useEffect } = React;
+
+    /* ============================================
+       TRANSCRIPT DATA
+       Sample conversation data organized by channel.
+       In production, this would come from an API.
+       ============================================ */
+    const conversationsByChannel = {
+      // Voice channel - primary phone conversation
+      Voice: [
+        { speaker: 'ai', text: 'This call may be recorded and uses automated voice technology.', time: '2:34 PM' },
+        { speaker: 'ai', text: 'Hi, Thomas. Thank you for calling USA Storage Centers Loxley. How can I help you today?', time: '2:34 PM' },
+        { speaker: 'customer', text: "I can't get in my unit.", time: '2:34 PM' },
+        { speaker: 'ai', text: 'Just a moment while I load in our latest information!', time: '2:34 PM' },
+        { speaker: 'ai', text: "I'm sorry to hear you're having trouble accessing your unit. Can you tell me what seems to be the issue—are you having trouble with your gate code, lock, or something else?", time: '2:35 PM' },
+        { speaker: 'customer', text: "I was told that there would be a green lock on there that has code on it, and there's not. There's a key a lock on it that only takes a key.", time: '2:35 PM' },
+        { speaker: 'ai', text: 'Thank you for explaining. It sounds like there may have been a mix-up with the lock on your unit. Let me check that for you…', time: '2:36 PM' },
+        { speaker: 'ai', text: 'Most units have a combination lock to secure unit before you move in. The code will be sent to you via email and/or text after completing the move in.', time: '2:36 PM' },
+        { speaker: 'ai', text: "If you're unable to find it, scan the Davinci sign QR code on site or contact the office during business hours.", time: '2:36 PM' },
+        { speaker: 'ai', text: "I just sent a text message to the phone number you're calling from with the link to our DaVinci portal.", time: '2:37 PM' },
+        { speaker: 'ai', text: 'Is there anything else I can help you with?', time: '2:37 PM' },
+        { speaker: 'customer', text: 'No. Not right now.', time: '2:38 PM' },
+        { speaker: 'ai', text: "If there's anything else I can assist with, please don't hesitate to call back. Goodbye!", time: '2:38 PM' },
+      ],
+      // SMS channel - follow-up text message
+      SMS: [
+        { speaker: 'ai', text: "USA Storage Centers Loxley: Here is the link to our DaVinci combination lock portal https://usastoragecenters.overlockrelease.com\n\nYou will need to enter the serial number located on the front of your lock. Please be sure to return this lock to the dropbox once it's removed!", time: '2:37 PM' },
+      ],
+      // Web channel - empty for this conversation
+      Web: [],
+    };
+
+    // "All" channel combines Voice + SMS in chronological order
+    // SMS is inserted after "I just sent a text message..." for accurate timeline
+    conversationsByChannel.All = [
+      ...conversationsByChannel.Voice.slice(0, 10),
+      { speaker: 'ai', text: "USA Storage Centers Loxley: Here is the link to our DaVinci combination lock portal https://usastoragecenters.overlockrelease.com\n\nYou will need to enter the serial number located on the front of your lock. Please be sure to return this lock to the dropbox once it's removed!", time: '2:37 PM', channel: 'sms' },
+      ...conversationsByChannel.Voice.slice(10),
+    ];
+
+    /* ============================================
+       SCROLL-TO-BOTTOM BUTTON COMPONENT
+       Provides quick navigation for long transcripts.
+       Only appears when user has scrolled up.
+       ============================================ */
+    function ScrollToBottomButton({ show, onClick }) {
+      if (!show) return null;
+      return (
+        <button
+          onClick={onClick}
+          className="scroll-btn fixed bottom-6 right-6 w-10 h-10 bg-white rounded-full shadow-lg border border-gray-200 flex items-center justify-center hover:bg-gray-50 z-50"
+          aria-label="Scroll to bottom"
+        >
+          <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+          </svg>
+        </button>
+      );
+    }
+
+    /* ============================================
+       AI SUMMARY COMPONENT
+       Collapsible accordion showing AI-generated summary.
+       Allows operators to quickly understand conversation
+       context without reading the full transcript.
+       ============================================ */
+    function AISummary({ isOpen, onToggle, hasMessages }) {
+      // Don't render if there are no messages to summarize
+      if (!hasMessages) return null;
+      
+      // In production, this would be generated by the AI
+      const summaryText = "Customer called unable to access their storage unit. They found a key lock instead of the expected combination lock. AI identified the issue and sent the DaVinci lock portal link via SMS. Issue resolved, no escalation needed.";
+
+      return (
+        <div className="px-4 pt-3 pb-1">
+          {/* Toggle button with rotating chevron indicator */}
+          <button
+            onClick={onToggle}
+            className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+          >
+            <svg className={`w-3.5 h-3.5 transition-transform ${isOpen ? 'rotate-90' : ''}`} fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+            </svg>
+            <span>AI Summary</span>
+          </button>
+
+          {/* Animated panel using CSS Grid technique */}
+          <div className={`summary-panel ${isOpen ? 'open' : ''}`}>
+            <div>
+              <p className="text-sm text-gray-600 leading-relaxed mt-2 pl-5 pr-2 pb-3 border-b border-gray-100">
+                {summaryText}
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    /* ============================================
+       LAYOUT TOGGLE DROPDOWN COMPONENT
+       Allows users to switch between Chat, List, and Raw views.
+       Uses three-dot menu pattern common in mobile apps.
+       ============================================ */
+    function SettingsDropdown({ activeLayout, setActiveLayout }) {
+      const [isOpen, setIsOpen] = useState(false);
+      const dropdownRef = useRef(null);
+
+      // Layout options with descriptive labels
+      const layouts = [
+        { id: 'chat', label: 'Chat', desc: 'Bubble view' },
+        { id: 'list', label: 'List', desc: 'Compact view' },
+        { id: 'raw', label: 'Raw', desc: 'Plain text' },
+      ];
+
+      // Close dropdown when clicking outside
+      useEffect(() => {
+        function handleClickOutside(event) {
+          if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+            setIsOpen(false);
+          }
+        }
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+      }, []);
+
+      return (
+        <div className="relative" ref={dropdownRef}>
+          {/* Three-dot menu trigger - 44px touch target for accessibility */}
+          <button
+            onClick={() => setIsOpen(!isOpen)}
+            className="p-2 -mr-2 rounded-full hover:bg-gray-100 transition-colors"
+          >
+            <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+            </svg>
+          </button>
+          
+          {/* Dropdown menu */}
+          {isOpen && (
+            <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
+              {layouts.map((layout) => (
+                <button
+                  key={layout.id}
+                  onClick={() => {
+                    setActiveLayout(layout.id);
+                    setIsOpen(false);
+                  }}
+                  className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center justify-between ${
+                    activeLayout === layout.id ? 'text-swivl-orange' : 'text-gray-700'
+                  }`}
+                >
+                  <span>{layout.label}</span>
+                  {/* Checkmark indicator for active layout */}
+                  {activeLayout === layout.id && (
+                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    /* ============================================
+       EMPTY STATE COMPONENT
+       Displayed when a channel has no messages.
+       ============================================ */
+    function EmptyState() {
+      return (
+        <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
+          <p className="text-base text-gray-500">No messages found for this channel.</p>
+        </div>
+      );
+    }
+
+    /* ============================================
+       TRANSCRIPT FOOTER COMPONENT
+       Consistent footer across all layout views.
+       Provides context and navigation hint.
+       ============================================ */
+    function TranscriptFooter({ scrollRef }) {
+      return (
+        <div ref={scrollRef} className="text-center text-gray-400 text-sm py-6 px-4 border-t border-gray-100 mt-4 italic">
+          This is the transcript for a single conversation.<br />
+          To interact with this customer, navigate to the Conversations section.
+        </div>
+      );
+    }
+
+    /* ============================================
+       CHAT LAYOUT COMPONENT
+       Bubble-style UI matching swivl's desktop pattern.
+       
+       USE CASE: Deep Review
+       - Familiar mental model (iMessage, WhatsApp)
+       - Clear speaker distinction via alignment + color
+       - Optimized for comprehension over speed
+       
+       TRADE-OFFS:
+       - More vertical scrolling required
+       - Lower information density
+       - Harder to scan for keywords
+       ============================================ */
+    function ChatLayout({ messages, scrollRef, animateMessages }) {
+      if (messages.length === 0) return <EmptyState />;
+      
+      return (
+        <div className="flex flex-col gap-2 p-4 pb-2">
+          {/* Timestamp header */}
+          <div 
+            className={`text-center text-gray-400 text-xs mb-2 ${animateMessages ? 'message-animate' : ''}`}
+            style={animateMessages ? { animationDelay: '0ms' } : {}}
+          >
+            8 days ago
+          </div>
+          
+          {/* Message bubbles */}
+          {messages.map((msg, idx) => (
+            <div
+              key={idx}
+              // AI messages left-aligned, customer messages right-aligned
+              className={`flex ${msg.speaker === 'customer' ? 'justify-end' : 'justify-start'} ${animateMessages ? 'message-animate' : ''}`}
+              // Staggered animation delay for visual interest
+              style={animateMessages ? { animationDelay: `${(idx + 1) * 40}ms` } : {}}
+            >
+              <div
+                className={`max-w-[80%] px-4 py-2.5 text-[15px] leading-relaxed break-words whitespace-pre-wrap ${
+                  msg.speaker === 'ai'
+                    // AI bubbles: swivl cream background, rounded corners with flat top-left
+                    ? 'bg-swivl-cream text-gray-800 rounded-2xl rounded-tl-sm'
+                    // Customer bubbles: gray background, rounded corners with flat top-right
+                    : 'bg-gray-200 text-gray-800 rounded-2xl rounded-tr-sm'
+                }`}
+              >
+                {msg.text}
+              </div>
+            </div>
+          ))}
+          <TranscriptFooter scrollRef={scrollRef} />
+        </div>
+      );
+    }
+
+    /* ============================================
+       LIST LAYOUT COMPONENT
+       Compact, scannable format with inline timestamps.
+       
+       USE CASE: Quick Check
+       - Higher information density
+       - Timestamps visible inline
+       - Easier to scan for keywords
+       - Optimized for speed over comprehension
+       
+       TRADE-OFFS:
+       - Unfamiliar pattern (no visual hierarchy like iMessage)
+       - No visual speaker cues (must read labels)
+       - Higher cognitive load to follow conversation flow
+       ============================================ */
+    function ListLayout({ messages, scrollRef, animateMessages }) {
+      if (messages.length === 0) return <EmptyState />;
+
+      return (
+        <div className="p-4 pb-2">
+          {/* Timestamp header */}
+          <div 
+            className={`text-xs text-gray-400 mb-2 ${animateMessages ? 'message-animate' : ''}`}
+            style={animateMessages ? { animationDelay: '0ms' } : {}}
+          >
+            8 days ago
+          </div>
+          
+          {/* Message list - tighter spacing for density */}
+          <div className="space-y-0">
+            {messages.map((msg, idx) => (
+              <div 
+                key={idx} 
+                className={`py-1.5 border-b border-gray-100 last:border-b-0 ${animateMessages ? 'message-animate' : ''}`}
+                style={animateMessages ? { animationDelay: `${(idx + 1) * 40}ms` } : {}}
+              >
+                {/* Speaker label + timestamp inline */}
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className={`text-xs font-medium ${msg.speaker === 'ai' ? 'text-swivl-orange' : 'text-gray-500'}`}>
+                    {msg.speaker === 'ai' ? 'swivl AI' : 'Customer'}
+                  </span>
+                  <span className="text-xs text-gray-300">{msg.time}</span>
+                </div>
+                {/* Message text - full width for scannability */}
+                <p className="text-[15px] text-gray-800 leading-snug break-words whitespace-pre-wrap">{msg.text}</p>
+              </div>
+            ))}
+          </div>
+          <TranscriptFooter scrollRef={scrollRef} />
+        </div>
+      );
+    }
+
+    /* ============================================
+       RAW LAYOUT COMPONENT
+       Plain text format optimized for copy/paste export.
+       
+       USE CASE: Export
+       - One-tap copy button for entire transcript
+       - No formatting to strip when pasting
+       - Maximum information density
+       - Designed for export, not review
+       
+       TRADE-OFFS:
+       - No visual hierarchy
+       - Not suitable for reading/comprehension
+       - Utility-first, not user-friendly for review
+       ============================================ */
+    function RawLayout({ messages, scrollRef, animateMessages }) {
+      const [copied, setCopied] = useState(false);
+      const [animate, setAnimate] = useState(false);
+      
+      if (messages.length === 0) return <EmptyState />;
+
+      // Format messages as plain text with timestamps
+      const rawText = messages.map(msg => {
+        const speaker = msg.speaker === 'ai' ? 'swivl AI' : 'Customer';
+        return `[${msg.time}] ${speaker}: ${msg.text}`;
+      }).join('\n\n');
+
+      // Copy to clipboard with visual feedback
+      const handleCopy = () => {
+        navigator.clipboard.writeText(rawText);
+        setCopied(true);
+        setAnimate(true);
+        // Reset animation state after completion
+        setTimeout(() => setAnimate(false), 200);
+        // Reset "Copied!" text after 2 seconds
+        setTimeout(() => setCopied(false), 2000);
+      };
+
+      return (
+        <div className={`p-4 pb-2 ${animateMessages ? 'message-animate' : ''}`}>
+          {/* Header with timestamp and copy button */}
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs text-gray-400">8 days ago • Raw transcript</span>
+            <button 
+              onClick={handleCopy}
+              className={`text-xs text-swivl-orange hover:text-orange-700 font-medium flex items-center gap-1 ${animate ? 'copy-pop' : ''}`}
+            >
+              {copied ? (
+                <>
+                  {/* Checkmark icon when copied */}
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  Copied!
+                </>
+              ) : (
+                <>
+                  {/* Copy icon */}
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                  Copy
+                </>
+              )}
+            </button>
+          </div>
+          
+          {/* Raw text display - monospace-like but readable */}
+          <pre className="raw-transcript text-sm text-gray-700 leading-relaxed whitespace-pre-wrap font-sans bg-gray-50 rounded-lg p-4 border border-gray-200 break-words">
+            {rawText}
+          </pre>
+          <TranscriptFooter scrollRef={scrollRef} />
+        </div>
+      );
+    }
+
+    /* ============================================
+       MAIN APPLICATION COMPONENT
+       Orchestrates all sub-components and manages
+       global state for layout, channel, and UI.
+       ============================================ */
+    function TranscriptDemo() {
+      // Layout state: 'chat' | 'list' | 'raw'
+      const [activeLayout, setActiveLayout] = useState('chat');
+      // Channel filter state: 'All' | 'Voice' | 'SMS' | 'Web'
+      const [activeChannel, setActiveChannel] = useState('All');
+      // AI Summary accordion state
+      const [summaryOpen, setSummaryOpen] = useState(false);
+      // Animation trigger for channel changes
+      const [animateMessages, setAnimateMessages] = useState(false);
+      // Scroll button visibility
+      const [showScrollButton, setShowScrollButton] = useState(false);
+      // Reference for scroll-to-bottom functionality
+      const scrollRef = useRef(null);
+
+      // Get messages for current channel
+      const messages = conversationsByChannel[activeChannel] || [];
+
+      // Track scroll position to show/hide scroll button
+      useEffect(() => {
+        const handleScroll = () => {
+          const scrollTop = window.scrollY;
+          const windowHeight = window.innerHeight;
+          const docHeight = document.documentElement.scrollHeight;
+          
+          // Show button when not near bottom (200px threshold)
+          const isNearBottom = scrollTop + windowHeight >= docHeight - 200;
+          setShowScrollButton(!isNearBottom && messages.length > 0);
+        };
+
+        window.addEventListener('scroll', handleScroll);
+        handleScroll(); // Initial check
+        
+        return () => window.removeEventListener('scroll', handleScroll);
+      }, [messages.length]);
+
+      // Smooth scroll to bottom of transcript
+      const scrollToBottom = () => {
+        scrollRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      };
+
+      // Handle channel change with animation
+      const handleChannelChange = (newChannel) => {
+        if (newChannel === activeChannel) return;
+        
+        const hasMessages = (conversationsByChannel[newChannel] || []).length > 0;
+        
+        if (hasMessages) {
+          setActiveChannel(newChannel);
+          setAnimateMessages(true);
+          
+          // Scroll to bottom after animation starts
+          setTimeout(() => {
+            scrollRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+          }, 100);
+          
+          // Reset animation state
+          setTimeout(() => {
+            setAnimateMessages(false);
+          }, 800);
+        } else {
+          // No animation for empty channels
+          setActiveChannel(newChannel);
+          setAnimateMessages(false);
+          window.scrollTo(0, 0);
+        }
+      };
+
+      return (
+        <div className="min-h-screen bg-gray-100">
+          {/* ==========================================
+              STICKY HEADER
+              Contains customer info, branding, and controls.
+              Stays visible during scroll for easy access.
+              ========================================== */}
+          <div className="sticky top-0 bg-white border-b border-gray-200 shadow-sm z-10">
+            {/* Top bar: back button, customer info, swivl logo, settings */}
+            <div className="flex items-center justify-between px-4 py-3">
+              <div className="flex items-center gap-3">
+                {/* Back button - 44px touch target */}
+                <button className="p-1 -ml-1 hover:bg-gray-100 rounded-full">
+                  <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                </button>
+                {/* Customer info */}
+                <div>
+                  <h1 className="text-base font-semibold text-gray-900">Thomas Harms</h1>
+                  <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                    {/* Phone icon indicating voice call */}
+                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z" />
+                    </svg>
+                    <span>8 days ago</span>
+                  </div>
+                </div>
+              </div>
+              {/* Right side: logo and layout toggle */}
+              <div className="flex items-center">
+                <img 
+                  src="https://cdn.prod.website-files.com/62e97acfc317c14236a3e02b/62e998400269142d76ad11c9_swivl_logo_color.svg" 
+                  alt="Swivl" 
+                  className="h-6 mr-1"
+                />
+                <SettingsDropdown activeLayout={activeLayout} setActiveLayout={setActiveLayout} />
+              </div>
+            </div>
+            
+            {/* Channel filter bar */}
+            <div className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-200 bg-gray-50">
+              <label className="text-sm text-gray-500">Channel:</label>
+              {/* Native select for better mobile UX and accessibility */}
+              <select
+                value={activeChannel}
+                onChange={(e) => handleChannelChange(e.target.value)}
+                className="w-24 text-sm font-medium text-gray-900 bg-white border border-gray-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-swivl-orange focus:border-transparent"
+              >
+                <option value="All">All</option>
+                <option value="Web">Web</option>
+                <option value="SMS">SMS</option>
+                <option value="Voice">Voice</option>
+              </select>
+            </div>
+          </div>
+
+          {/* ==========================================
+              MAIN CONTENT AREA
+              Renders the active layout component.
+              max-w-lg constrains width on larger screens.
+              ========================================== */}
+          <div className="max-w-lg mx-auto bg-white min-h-screen shadow-sm">
+            {/* AI Summary accordion */}
+            <AISummary 
+              isOpen={summaryOpen} 
+              onToggle={() => setSummaryOpen(!summaryOpen)} 
+              hasMessages={messages.length > 0}
+            />
+            
+            {/* Conditional layout rendering based on active state */}
+            {activeLayout === 'chat' && <ChatLayout messages={messages} scrollRef={scrollRef} animateMessages={animateMessages} />}
+            {activeLayout === 'list' && <ListLayout messages={messages} scrollRef={scrollRef} animateMessages={animateMessages} />}
+            {activeLayout === 'raw' && <RawLayout messages={messages} scrollRef={scrollRef} animateMessages={animateMessages} />}
+          </div>
+
+          {/* Scroll-to-bottom FAB */}
+          <ScrollToBottomButton show={showScrollButton} onClick={scrollToBottom} />
+        </div>
+      );
+    }
+
+    /* ============================================
+       REACT INITIALIZATION
+       Mount the application to the DOM.
+       ============================================ */
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<TranscriptDemo />);
+  </script>
+</body>
+</html>
