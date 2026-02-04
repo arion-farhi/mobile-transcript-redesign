@@ -16,7 +16,7 @@ A mobile-first redesign of swivl's transcript review page, built as a Claude Cod
 ```
 ├── CLAUDE.md              # Project context and constraints for Claude Code
 ├── swivl.html             # Working demo with all three layouts
-├── claude-conversation.md    # Development conversation log (23 prompts)
+├── claude_conversation.md    # Development conversation log (23 prompts)
 ├── README.md              # This file
 └── images/
     └── swivl.png          # Favicon
